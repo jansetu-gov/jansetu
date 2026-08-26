@@ -37,3 +37,4 @@ web-build/
 
 # Supabase local files
 supabase/.temp/jansetu-gov-source.zip 
+supabase/.temp/ 
