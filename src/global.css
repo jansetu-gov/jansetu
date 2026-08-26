@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* JanSetu Gov — Civic Rationalism */
+    --background: 0 0% 100%;
+    --foreground: 214 60% 9%;
+    --card: 0 0% 99%;
+    --card-foreground: 214 60% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 214 60% 9%;
+    /* Deep Saffron #FF6B35 → hsl(17,100%,60%) */
+    --primary: 17 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    /* Deep Navy #0A192F → hsl(214,65%,11%) */
+    --secondary: 214 65% 11%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 210 20% 96%;
+    --muted-foreground: 214 20% 45%;
+    /* Off-white card bg */
+    --accent: 210 14% 93%;
+    --accent-foreground: 214 60% 9%;
+    /* Brick Red #D32F2F for anomalies */
+    --destructive: 0 66% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 10% 88%;
+    --input: 214 10% 88%;
+    --ring: 17 100% 60%;
+    --radius: 0.25rem;
+  }
+
+  .dark {
+    --background: 214 40% 8%;
+    --foreground: 0 0% 97%;
+    --card: 214 35% 10%;
+    --card-foreground: 0 0% 97%;
+    --popover: 214 35% 10%;
+    --popover-foreground: 0 0% 97%;
+    --primary: 17 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 65% 18%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 214 30% 14%;
+    --muted-foreground: 214 10% 60%;
+    --accent: 214 30% 14%;
+    --accent-foreground: 0 0% 97%;
+    --destructive: 0 66% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 20% 20%;
+    --input: 214 20% 20%;
+    --ring: 17 100% 60%;
+  }
+}

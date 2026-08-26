@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Metro / NativeWind caches
+.metro-cache/
+.native-wind-cache/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Expo generated files
+expo-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build outputs
+dist/
+web-build/
+
+# Supabase local files
+supabase/.temp/
