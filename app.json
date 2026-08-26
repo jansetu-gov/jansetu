@@ -25,12 +25,20 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
+        "plugins": [
       "expo-router",
       "expo-asset",
       "expo-sqlite",
       "expo-font",
-      "expo-system-ui"
+      "expo-system-ui",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow JanSetu Gov to use the microphone for voice search.",
+          "speechRecognitionPermission": "Allow JanSetu Gov to use speech recognition for voice search.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
     ],
     "router": {
       "root": "src"

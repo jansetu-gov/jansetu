@@ -34,6 +34,9 @@ catalog:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - miaoda-expo-devkit
+  - '@expo/image-utils@0.8.17'
+  - '@expo/require-utils@55.0.8'
+  - expo-location@55.1.14
 allowUnusedPatches: true
 packageExtensions:
   react-native-gifted-charts:

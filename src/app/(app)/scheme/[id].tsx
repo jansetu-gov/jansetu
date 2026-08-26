@@ -6,15 +6,18 @@ import {
   Text,
   View,
   Linking,
+  Alert,
+  Platform,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
-import { ArrowLeft, Bookmark, CheckCircle, FileText, ExternalLink, MapPin, Volume2, VolumeX, MessageSquareText } from "lucide-react-native";
+import { ArrowLeft, Bookmark, CheckCircle, FileText, ExternalLink, MapPin, Volume2, VolumeX } from "lucide-react-native";
 import * as Speech from "expo-speech";
-import Animated, { ZoomIn, FadeInDown } from "react-native-reanimated";
 import { useApp } from "@/lib/appContext";
 import { useSession } from "@/ctx";
 import { CATEGORY_ICONS, COLORS, DEMO_DATASET_LABEL, T } from "@/lib/constants";
-import { fetchSchemeById, isBookmarked, toggleBookmark, createApplication, logSimulatedSms } from "@/db/api";
+import { fetchSchemeById, isBookmarked, toggleBookmark, logSimulatedSms, fetchProfile } from "@/db/api";
+import { findNearestCsc } from "@/lib/csc";
 
 const TRANSLATE_TARGET_MAP: Record<string, string> = {
   hi: "hi", bn: "bn", mr: "mr", gu: "gu", ta: "ta", te: "te",
@@ -74,14 +77,16 @@ export default function SchemeDetail() {
     last_updated: string | null;
     [key: string]: unknown;
   };
+
   const [scheme, setScheme] = useState<SchemeRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [bookmarked, setBookmarked] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState(false);
-  const [applicationRef, setApplicationRef] = useState<{ id: string; submitted_at: string } | null>(null);
   const [speaking, setSpeaking] = useState(false);
-  const [smsPreview, setSmsPreview] = useState<string | null>(null);
+  const [findingCsc, setFindingCsc] = useState(false);
+
+  // Custom Alert Modal States
+  const [cscModalVisible, setCscModalVisible] = useState(false);
+  const [cscModalText, setCscModalText] = useState("");
 
   const [translated, setTranslated] = useState<TranslatedContent | null>(null);
   const [translatingPage, setTranslatingPage] = useState(false);
@@ -140,35 +145,63 @@ export default function SchemeDetail() {
     setBookmarked(nowBm);
   }
 
-  function maskedPhone(userId: string) {
-    const digits = userId.replace(/[^0-9]/g, "").padEnd(4, "0").slice(0, 4);
-    return `+91 9XXXX${digits}`;
-  }
+  function handleApply() {
+    if (!scheme) return;
 
-  function shortRef(uuid: string) {
-    return `APP-${uuid.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-  }
-
-  async function handleApply() {
-    if (!session?.user.id || !scheme) return;
-    setApplying(true);
-    try {
-      const result = await createApplication(session.user.id, id, scheme.name);
-      if (result) {
-        setApplicationRef(result);
-        const ref = shortRef(result.id);
-        const phone = maskedPhone(session.user.id);
-        const body = `JanSetu Gov: Your application for "${scheme.name}" is received. Application ID: ${ref}. Track status & upload documents: jansetu.gov.in/track/${ref} (Demo Link). Nearest help centre: ${scheme.csc_info ?? "your local CSC"}. - Team JanSetu`;
+    if (session?.user.id) {
+      (async () => {
         try {
-          await logSimulatedSms(session.user.id, result.id, phone, body);
-          setSmsPreview(body);
-        } catch {
-          // SMS log failure shouldn't block the application success flow
+          const profile = await fetchProfile(session.user.id).catch(() => null);
+          const phoneDisplay = (profile?.phone as string) || "your registered number";
+
+          let cscText = scheme.csc_info ?? "your nearest Common Service Centre";
+          const nearestCentres = await findNearestCsc();
+          const nearest = nearestCentres?.[0];
+          if (nearest) {
+            cscText = `${nearest.name}, ${nearest.address}${
+              nearest.distance_km ? ` (${nearest.distance_km.toFixed(1)} km away)` : ""
+            }`;
+          }
+          const link = scheme.application_url ?? "Contact nearest CSC to apply";
+          const body = `JanSetu Gov: Sent to +91-${phoneDisplay}. Application link for "${scheme.name}": ${link}. Nearest help centre: ${cscText}. - Team JanSetu`;
+          await logSimulatedSms(session.user.id, null, phoneDisplay, body);
+        } catch (err) {
+          console.log("SMS log error:", err);
         }
+      })();
+    }
+
+    if (scheme.application_url) {
+      if (Platform.OS === "web") {
+        window.open(scheme.application_url, "_blank");
+      } else {
+        Linking.openURL(scheme.application_url);
       }
-      setApplied(true);
+    } else {
+      setCscModalText(`Please apply at: ${scheme.csc_info ?? "your nearest Common Service Centre"}`);
+      setCscModalVisible(true);
+    }
+  }
+
+  async function handleFindCsc() {
+    setFindingCsc(true);
+    try {
+      const nearestCentres = await findNearestCsc();
+      const nearest = nearestCentres?.[0];
+      const msg = nearest
+        ? `${nearest.name}\n${nearest.address}${
+            nearest.distance_km ? `\n(${nearest.distance_km.toFixed(1)} km away)` : ""
+          }`
+        : scheme?.csc_info ?? "No CSC centre found near you yet";
+      
+      setCscModalText(msg);
+      setCscModalVisible(true);
+    } catch (err) {
+      console.error("Error retrieving CSC:", err);
+      setCscModalText(scheme?.csc_info ?? "No CSC centre found near you yet");
+      setCscModalVisible(true);
     } finally {
-      setApplying(false);
+      setFindingCsc(false);
     }
   }
 
@@ -272,7 +305,6 @@ export default function SchemeDetail() {
           <Text className="text-sm text-white/70">{scheme.department}</Text>
           <Text className="text-sm text-white/80 mt-3">{displayDescription}</Text>
 
-          {/* Listen button (prominent, low-literacy friendly) */}
           <Pressable
             onPress={handleListen}
             className="mt-4 flex-row items-center gap-2 self-start px-4 py-2.5 rounded-sm active:opacity-80"
@@ -284,13 +316,11 @@ export default function SchemeDetail() {
             </Text>
           </Pressable>
 
-          {/* Demo label */}
           <View className="mt-3 px-2 py-1 rounded-sm self-start" style={{ backgroundColor: "rgba(255,107,53,0.2)" }}>
             <Text className="text-xs font-semibold" style={{ color: COLORS.primary }}>{DEMO_DATASET_LABEL}</Text>
           </View>
         </View>
 
-        {/* Eligibility */}
         <SectionCard title={t.eligibility} icon="✅">
           {scheme.eligibility_income_limit && (
             <InfoRow label="Income Limit" value={`Up to ₹${(scheme.eligibility_income_limit / 100000).toFixed(1)} Lakh per year`} />
@@ -316,12 +346,10 @@ export default function SchemeDetail() {
           </Pressable>
         </SectionCard>
 
-        {/* Benefits */}
         <SectionCard title={t.benefits} icon="💰">
           <Text className="text-sm text-foreground leading-5">{displayBenefits}</Text>
         </SectionCard>
 
-        {/* Documents */}
         <SectionCard title={t.documents} icon="📄">
           {docs.map((doc, i) => (
             <View key={i} className="flex-row items-start gap-2 mb-1.5">
@@ -331,7 +359,6 @@ export default function SchemeDetail() {
           ))}
         </SectionCard>
 
-        {/* Application Process */}
         <SectionCard title="Application Process" icon="📝">
           {steps.map((step, i) => (
             <View key={i} className="flex-row items-start gap-3 mb-3">
@@ -358,7 +385,6 @@ export default function SchemeDetail() {
           )}
         </SectionCard>
 
-        {/* CSC Info */}
         {scheme.csc_info && (
           <SectionCard title="Help / CSC Centre" icon="📍">
             <View className="flex-row items-start gap-2">
@@ -368,93 +394,59 @@ export default function SchemeDetail() {
           </SectionCard>
         )}
 
-        {/* Apply / Track */}
         <View className="px-5 pb-10 gap-3 mt-2">
-          {applied ? (
-            <Animated.View entering={FadeInDown.duration(400)}>
-              <View
-                className="rounded-lg p-5 items-center"
-                style={{ backgroundColor: "#e8f5e9", borderWidth: 1, borderColor: "#c8e6c9" }}
-              >
-                <Animated.View entering={ZoomIn.delay(150).duration(500).springify()}>
-                  <View
-                    className="w-16 h-16 rounded-full items-center justify-center mb-3"
-                    style={{ backgroundColor: "#2E7D32" }}
-                  >
-                    <CheckCircle size={32} color="#fff" />
-                  </View>
-                </Animated.View>
-                <Text className="text-lg font-bold text-center" style={{ color: "#1B5E20" }}>
-                  Application Submitted!
-                </Text>
-                <Text className="text-sm text-center mt-1" style={{ color: "#2E7D32" }}>
-                  Your demo application for {displayName} has been recorded.
-                </Text>
+          <Pressable
+            className="rounded-sm py-4 items-center flex-row justify-center gap-2 active:opacity-80 border"
+            style={{ borderColor: COLORS.primary }}
+            onPress={handleFindCsc}
+            disabled={findingCsc}
+          >
+            {findingCsc ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <MapPin size={18} color={COLORS.primary} />
+            )}
+            <Text className="font-bold text-base" style={{ color: COLORS.primary }}>
+              {findingCsc ? "Finding..." : "Find Nearest CSC"}
+            </Text>
+          </Pressable>
 
-                {applicationRef && (
-                  <View
-                    className="mt-4 px-4 py-2 rounded-md self-stretch items-center"
-                    style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: "#c8e6c9" }}
-                  >
-                    <Text className="text-xs text-muted-foreground">Application ID</Text>
-                    <Text className="text-base font-bold tracking-wider" style={{ color: COLORS.navy }}>
-                      {shortRef(applicationRef.id)}
-                    </Text>
-                  </View>
-                )}
-
-                <Pressable
-                  className="mt-4 rounded-sm py-3 px-6 self-stretch items-center active:opacity-80"
-                  style={{ backgroundColor: "#2E7D32" }}
-                  onPress={() => router.push("/(app)/(citizen)/my-schemes")}
-                >
-                  <Text className="text-white font-bold text-sm">Track My Application →</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-          ) : (
-            <Pressable
-              className="rounded-sm py-4 items-center active:opacity-80"
-              style={{ backgroundColor: COLORS.primary }}
-              onPress={handleApply}
-              disabled={applying}
-            >
-              {applying ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-white font-bold text-base">{t.applyNow} (Demo)</Text>
-              )}
-            </Pressable>
-          )}
-          {!applied && (
-            <Pressable
-              className="rounded-sm py-4 items-center border"
-              style={{ borderColor: COLORS.navy }}
-              onPress={() => router.push("/(app)/(citizen)/my-schemes")}
-            >
-              <Text className="font-bold text-base" style={{ color: COLORS.navy }}>Track My Application →</Text>
-            </Pressable>
-          )}
-
-          {/* SMS Simulation Preview */}
-          {smsPreview && (
-            <Animated.View entering={FadeInDown.delay(300).duration(400)}>
-              <View
-                className="rounded-lg p-4"
-                style={{ backgroundColor: "#F0F4FF", borderWidth: 1, borderColor: "#C7D2FE" }}
-              >
-                <View className="flex-row items-center gap-2 mb-2">
-                  <MessageSquareText size={16} color={COLORS.navy} />
-                  <Text className="text-xs font-bold uppercase tracking-wider" style={{ color: COLORS.navy }}>
-                    SMS Sent (Simulated Demo)
-                  </Text>
-                </View>
-                <Text className="text-sm text-foreground leading-5">{smsPreview}</Text>
-              </View>
-            </Animated.View>
-          )}
+          <Pressable
+            className="rounded-sm py-4 items-center flex-row justify-center gap-2 active:opacity-80"
+            style={{ backgroundColor: COLORS.primary }}
+            onPress={handleApply}
+          >
+            <ExternalLink size={18} color="#fff" />
+            <Text className="text-white font-bold text-base">Apply Now</Text>
+          </Pressable>
         </View>
       </ScrollView>
+
+      {/* Pop-up Alert Modal */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={cscModalVisible}
+        onRequestClose={() => setCscModalVisible(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/60 px-6">
+          <View className="bg-card w-full max-w-sm rounded-lg p-5 border border-border shadow-lg">
+            <Text className="text-lg font-bold text-foreground mb-2">
+              📍 Nearest CSC Centre
+            </Text>
+            <Text className="text-sm text-foreground/80 leading-5 mb-5">
+              {cscModalText}
+            </Text>
+            <Pressable
+              onPress={() => setCscModalVisible(false)}
+              className="py-3 rounded-md items-center active:opacity-80"
+              style={{ backgroundColor: COLORS.primary }}
+            >
+              <Text className="text-white font-bold text-sm">OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

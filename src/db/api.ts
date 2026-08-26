@@ -2,12 +2,46 @@ import { supabase } from "@/client/supabase";
 
 // ── Schemes ──────────────────────────────────────────────────
 export async function fetchSchemes(category?: string, search?: string) {
-  let q = supabase.from("schemes").select("*").eq("is_active", true).order("name").limit(50);
+  let q = supabase.from("schemes").select("*").eq("is_active", true).limit(100);
   if (category) q = q.eq("category", category);
-  if (search) q = q.or(`name.ilike.%${search}%,description.ilike.%${search}%,keywords.cs.{${search}}`);
+  if (search) {
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+    const orParts = [
+      `name.ilike.%${search}%`,
+      `description.ilike.%${search}%`,
+      ...words.map((w) => `name.ilike.%${w}%`),
+      ...words.map((w) => `description.ilike.%${w}%`),
+    ];
+    q = q.or(orParts.join(","));
+  }
   const { data, error } = await q;
   if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  let results = Array.isArray(data) ? data : [];
+
+  if (search) {
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+    results = results
+      .map((s) => {
+        const name = (s.name as string).toLowerCase();
+        const desc = (s.description as string).toLowerCase();
+        const keywords: string[] = (s.keywords as string[]) ?? [];
+        let score = 0;
+        if (name === search.toLowerCase()) score += 100;
+        if (name.includes(search.toLowerCase())) score += 40;
+        for (const w of words) {
+          if (name.includes(w)) score += 15;
+          if (keywords.some((k) => k.toLowerCase().includes(w))) score += 10;
+          if (desc.includes(w)) score += 3;
+        }
+        return { ...s, _score: score };
+      })
+      .filter((s) => s._score > 0)
+      .sort((a, b) => b._score - a._score);
+  } else {
+    results = results.sort((a, b) => (a.name as string).localeCompare(b.name as string));
+  }
+
+  return results.slice(0, 50);
 }
 
 export async function fetchSchemeById(id: string) {
@@ -32,9 +66,10 @@ export async function searchSchemesByIntent(keywords: string[]) {
       let score = 0;
       const schemeKeywords: string[] = s.keywords ?? [];
       const schemeText = `${s.name} ${s.description} ${s.category} ${schemeKeywords.join(" ")}`.toLowerCase();
-      for (const kw of keywordList) {
+           for (const kw of keywordList) {
         if (schemeText.includes(kw)) score += 3;
-        if (schemeKeywords.some((sk: string) => sk.toLowerCase().includes(kw))) score += 5;
+        if (schemeKeywords.some((sk: string) => sk.toLowerCase() === kw)) score += 12;
+        else if (schemeKeywords.some((sk: string) => sk.toLowerCase().includes(kw))) score += 5;
       }
       return { ...s, score };
     })
@@ -179,7 +214,7 @@ export async function updateProfile(userId: string, updates: Record<string, unkn
 // ── SMS Simulation (Free, no real SMS sent) ────────────────────
 export async function logSimulatedSms(
   userId: string,
-  applicationId: string,
+  applicationId: string | null,
   phoneDisplay: string,
   messageBody: string
 ) {

@@ -23,6 +23,7 @@ export default function SignIn() {
   const [mode, setMode] = useState<AuthMode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,10 +49,11 @@ export default function SignIn() {
     setError("");
     if (!username.trim() || !password) { setError("Username and password are required."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (!phone.trim() || phone.trim().length < 10) { setError("Please enter a valid 10-digit mobile number."); return; }
     if (!agreed) { setError("Please agree to the User Agreement and Privacy Policy."); return; }
     setLoading(true);
     const { data, error: e } = await supabase.functions.invoke("register-user", {
-      body: { username: username.trim().toLowerCase(), password, role: currentRole },
+      body: { username: username.trim().toLowerCase(), password, role: currentRole, phone: phone.trim() },
     });
     if (e || data?.error) {
       const msg = data?.error ?? (await e?.context?.text()) ?? e?.message ?? "Registration failed.";
@@ -116,6 +118,22 @@ export default function SignIn() {
           autoCorrect={false}
           returnKeyType="next"
         />
+
+        {/* Phone (register only) */}
+        {mode === "register" && (
+          <>
+            <Text className="text-sm font-semibold text-foreground mb-1">Mobile Number</Text>
+            <TextInput
+              className="border border-border rounded-sm px-4 py-3 mb-4 text-foreground bg-card"
+              placeholder="10-digit mobile number"
+              value={phone}
+              onChangeText={(v) => setPhone(v.replace(/[^0-9]/g, "").slice(0, 10))}
+              keyboardType="number-pad"
+              maxLength={10}
+              returnKeyType="next"
+            />
+          </>
+        )}
 
         {/* Password */}
         <Text className="text-sm font-semibold text-foreground mb-1">Password</Text>

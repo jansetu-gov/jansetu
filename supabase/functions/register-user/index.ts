@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { username, password, role, display_name } = await req.json();
+      const { username, password, role, display_name, phone } = await req.json();
 
     if (!username || !password || !role) {
       return new Response(
@@ -49,11 +49,10 @@ Deno.serve(async (req) => {
     }
 
     // Update profiles with correct role and display name
-    await supabaseAdmin
+        await supabaseAdmin
       .from("profiles")
-      .update({ role, display_name: display_name || username, username })
+      .update({ role, display_name: display_name || username, username, phone: phone || null })
       .eq("id", authData.user.id);
-
     // Sign in to get session
     const supabaseAnon = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",

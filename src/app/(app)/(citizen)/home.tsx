@@ -10,6 +10,10 @@ import {
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { Mic, ChevronRight, Search } from "lucide-react-native";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 import { useApp } from "@/lib/appContext";
 import { useSession } from "@/ctx";
 import {
@@ -24,6 +28,19 @@ import {
   getLifecycleLabel,
 } from "@/lib/constants";
 import { searchSchemesByIntent } from "@/db/api";
+
+// Translate spoken/typed query INTO English before intent-matching
+const VOICE_TRANSLATE_MAP: Record<string, string> = {
+  hi: "hi", bn: "bn", mr: "mr", gu: "gu", ta: "ta", te: "te",
+  kn: "kn", pa: "pa", ml: "ml", ur: "ur", ne: "ne",
+};
+
+// Locale tags for speech recognition (web + native)
+const MIC_LOCALE_MAP: Record<string, string> = {
+  en: "en-IN", hi: "hi-IN", as: "as-IN", bn: "bn-IN", mr: "mr-IN",
+  gu: "gu-IN", ta: "ta-IN", te: "te-IN", kn: "kn-IN", pa: "pa-IN",
+  or: "or-IN", ur: "ur-IN", ne: "ne-NP", ml: "ml-IN",
+};
 
 // Intent keyword extraction
 function extractKeywords(text: string): string[] {
@@ -48,7 +65,7 @@ function extractKeywords(text: string): string[] {
     if (triggers.some((t) => lower.includes(t))) found.add(key);
   }
   // Also push raw words
-  const words = lower.split(/\s+/).filter((w) => w.length > 3);
+    const words = lower.split(/\s+/).filter((w) => w.length > 1);
   words.forEach((w) => found.add(w));
   return Array.from(found);
 }
@@ -84,6 +101,7 @@ export default function CitizenHome() {
 
   const [query, setQuery] = useState("");
   const [listening, setListening] = useState(false);
+  const [translatingQuery, setTranslatingQuery] = useState(false);
   const [results, setResults] = useState<Record<string, unknown>[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -97,12 +115,44 @@ export default function CitizenHome() {
     }, [])
   );
 
+  // Native speech recognition events (no-op on web)
+  useSpeechRecognitionEvent("result", (event) => {
+    const transcript = event.results?.[0]?.transcript;
+    if (transcript) {
+      setQuery(transcript);
+      setListening(false);
+      handleSearch(transcript);
+    }
+  });
+  useSpeechRecognitionEvent("end", () => setListening(false));
+  useSpeechRecognitionEvent("error", () => {
+    setListening(false);
+    setShowTextInput(true);
+  });
+
   async function handleSearch(text: string) {
     if (!text.trim()) return;
     setSearching(true);
     setSearched(false);
     try {
-      const keywords = extractKeywords(text);
+      let queryText = text;
+      const srcCode = VOICE_TRANSLATE_MAP[lang];
+      if (srcCode && lang !== "en") {
+        setTranslatingQuery(true);
+        try {
+          const res = await fetch(
+            `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${srcCode}|en`
+          );
+          const json = await res.json();
+          if (json?.responseData?.translatedText) {
+            queryText = json.responseData.translatedText;
+          }
+        } catch {
+          // translation failed — fall back to raw text
+        }
+        setTranslatingQuery(false);
+      }
+      const keywords = extractKeywords(queryText);
       const data = await searchSchemesByIntent(keywords);
       setResults(data.map((s) => ({ ...s, _matchReason: getMatchReason(s, keywords) })));
       setSearched(true);
@@ -114,41 +164,56 @@ export default function CitizenHome() {
     }
   }
 
-  function handleMicPress() {
-    // Web Speech API attempt, fallback to text input
-    type SRCtor = new () => {
-      lang: string;
-      onstart: () => void;
-      onresult: (e: { results: { [k: number]: { [k: number]: { transcript: string } } } }) => void;
-      onerror: () => void;
-      onend: () => void;
-      start: () => void;
-    };
-    const win = process.env.EXPO_OS === "web" && typeof window !== "undefined"
-      ? (window as unknown as Record<string, unknown>)
-      : null;
-    if (win && ("SpeechRecognition" in win || "webkitSpeechRecognition" in win)) {
-      const SR = (win["SpeechRecognition"] ?? win["webkitSpeechRecognition"]) as SRCtor;
-      const recognition = new SR();
-           const localeMap: Record<string, string> = {
-        en: "en-IN", hi: "hi-IN", as: "as-IN", bn: "bn-IN", mr: "mr-IN",
-        gu: "gu-IN", ta: "ta-IN", te: "te-IN", kn: "kn-IN", pa: "pa-IN",
-        or: "or-IN", ur: "ur-IN", ne: "ne-NP", ml: "ml-IN",
+  async function handleMicPress() {
+    if (process.env.EXPO_OS === "web") {
+      // Web Speech API attempt, fallback to text input
+      type SRCtor = new () => {
+        lang: string;
+        onstart: () => void;
+        onresult: (e: { results: { [k: number]: { [k: number]: { transcript: string } } } }) => void;
+        onerror: () => void;
+        onend: () => void;
+        start: () => void;
       };
-      recognition.lang = localeMap[lang] ?? "hi-IN";
-      recognition.onstart = () => setListening(true);
-      recognition.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
-        setQuery(transcript);
-        setListening(false);
-        handleSearch(transcript);
-      };
-      recognition.onerror = () => { setListening(false); setShowTextInput(true); };
-      recognition.onend = () => setListening(false);
-      recognition.start();
+      const win = typeof window !== "undefined"
+        ? (window as unknown as Record<string, unknown>)
+        : null;
+      if (win && ("SpeechRecognition" in win || "webkitSpeechRecognition" in win)) {
+        const SR = (win["SpeechRecognition"] ?? win["webkitSpeechRecognition"]) as SRCtor;
+        const recognition = new SR();
+        recognition.lang = MIC_LOCALE_MAP[lang] ?? "hi-IN";
+        recognition.onstart = () => setListening(true);
+        recognition.onresult = (e) => {
+          const transcript = e.results[0][0].transcript;
+          setQuery(transcript);
+          setListening(false);
+          handleSearch(transcript);
+        };
+        recognition.onerror = () => { setListening(false); setShowTextInput(true); };
+        recognition.onend = () => setListening(false);
+        recognition.start();
+      } else {
+        setShowTextInput(true);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     } else {
-      setShowTextInput(true);
-      setTimeout(() => inputRef.current?.focus(), 100);
+      // Native (Android/iOS) speech recognition
+      try {
+        const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (!result.granted) {
+          setShowTextInput(true);
+          return;
+        }
+        setListening(true);
+        ExpoSpeechRecognitionModule.start({
+          lang: MIC_LOCALE_MAP[lang] ?? "hi-IN",
+          interimResults: false,
+          continuous: false,
+        });
+      } catch {
+        setListening(false);
+        setShowTextInput(true);
+      }
     }
   }
 
@@ -221,6 +286,12 @@ export default function CitizenHome() {
           </Text>
         </Pressable>
 
+        {translatingQuery && (
+          <Text className="text-xs text-center mb-2" style={{ color: COLORS.primary }}>
+            Translating your query...
+          </Text>
+        )}
+
         {/* Text Fallback */}
         {(showTextInput || process.env.EXPO_OS === "web") && (
           <View className="flex-row gap-2 items-center">
@@ -281,7 +352,7 @@ export default function CitizenHome() {
                         <Text className="text-lg">{CATEGORY_ICONS[scheme.category as string] ?? "📋"}</Text>
                         <View className="bg-accent rounded-sm px-2 py-0.5">
                           <Text className="text-xs font-semibold text-muted-foreground">
-                            {scheme.category as string}
+                            {getCategoryLabel(scheme.category as string, lang)}
                           </Text>
                         </View>
                       </View>
@@ -345,7 +416,7 @@ export default function CitizenHome() {
               onPress={() => router.push({ pathname: "/(app)/(citizen)/search", params: { category: cat } })}
             >
               <Text className="text-base">{CATEGORY_ICONS[cat]}</Text>
-                            <Text className="text-sm font-medium text-foreground">{getCategoryLabel(cat, lang)}</Text>
+              <Text className="text-sm font-medium text-foreground">{getCategoryLabel(cat, lang)}</Text>
             </Pressable>
           ))}
         </View>
@@ -365,7 +436,7 @@ export default function CitizenHome() {
                   style={{ backgroundColor: i === 0 ? `${COLORS.primary}18` : "#f1f5f9" }}
                 >
                   <Text className="text-xs font-semibold"
-                                       style={{ color: i === 0 ? COLORS.primary : COLORS.navy }}>
+                    style={{ color: i === 0 ? COLORS.primary : COLORS.navy }}>
                     {getLifecycleLabel(step, lang)}
                   </Text>
                 </View>
