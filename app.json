@@ -10,7 +10,11 @@
     "ios": {
       "supportsTablet": true,
       "buildNumber": "1",
-      "bundleIdentifier": "com.miaoda.appdwklvblrbf29"
+      "bundleIdentifier": "com.miaoda.appdwklvblrbf29",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow JanSetu Gov to use speech recognition for voice search.",
+        "NSMicrophoneUsageDescription": "Allow JanSetu Gov to use the microphone for voice search."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,13 +23,18 @@
       },
       "predictiveBackGestureEnabled": false,
       "versionCode": 1,
-      "package": "com.miaoda.appdwklvblrbf29"
+      "package": "com.miaoda.appdwklvblrbf29",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
-        "plugins": [
+    "plugins": [
       "expo-router",
       "expo-asset",
       "expo-sqlite",
@@ -36,7 +45,15 @@
         {
           "microphonePermission": "Allow JanSetu Gov to use the microphone for voice search.",
           "speechRecognitionPermission": "Allow JanSetu Gov to use speech recognition for voice search.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow JanSetu Gov to use your location to find the nearest CSC centre."
         }
       ]
     ],
@@ -45,6 +62,12 @@
     },
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1dc87cb2-3ff2-41d6-be6b-59dc740cc673"
+      }
     }
   }
 }

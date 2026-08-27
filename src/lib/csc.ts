@@ -1,63 +1,96 @@
-export type CscCentre = {
-  id?: string;
+/**
+ * src/lib/csc.ts
+ * -----------------------------------------------------------------
+ * Finds the nearest CSC (Common Service Centre) to the user, using
+ * GPS first and falling back to district-based lookup if location
+ * isn't available.
+ *
+ * Requires: expo-location (already installed)
+ * -----------------------------------------------------------------
+ */
+import * as Location from "expo-location";
+import { supabase } from "@/client/supabase";
+
+export type CscCenter = {
+  id: string;
   name: string;
   address: string;
+  district: string;
+  state: string;
+  phone: string | null;
+  latitude: number;
+  longitude: number;
   distance_km?: number;
 };
 
 /**
- * Gets live GPS coordinates and converts them to a readable real-world address
- * using free OpenStreetMap Reverse Geocoding.
+ * Requests GPS permission and returns the device's current coordinates.
+ * Returns null if permission is denied or location can't be read —
+ * callers should fall back to district-based lookup in that case.
  */
-export async function findNearestCsc(): Promise<CscCentre[]> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve([]);
-      return;
-    }
+export async function getCurrentCoords(): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") return null;
+    const position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return { lat: position.coords.latitude, lng: position.coords.longitude };
+  } catch (err) {
+    console.warn("getCurrentCoords failed:", err);
+    return null;
+  }
+}
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-
-        try {
-          // Free Reverse Geocoding API to get readable address from Lat/Lng
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14`
-          );
-          const data = await res.json();
-          const address = data.address || {};
-
-          // Extract realistic location names from the user's actual live GPS
-          const district = address.state_district || address.city || address.county || "Local";
-          const area = address.suburb || address.neighbourhood || address.town || "Block Office";
-          
-          // Generate a random realistic distance (1 to 15 km) for the demo
-          const randomDistance = parseFloat((Math.random() * 14 + 1).toFixed(1));
-
-          resolve([
-            {
-              name: `CSC ${district}`,
-              address: `Near ${area}, ${district}`,
-              distance_km: randomDistance,
-            },
-          ]);
-        } catch (err) {
-          console.error("Reverse geocoding failed:", err);
-          // Fallback if API fails
-          resolve([
-            {
-              name: "Nearest CSC Centre",
-              address: "Address unavailable, please check internet",
-            }
-          ]);
-        }
-      },
-      (error) => {
-        console.warn("GPS Location Error:", error.message);
-        resolve([]);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+/**
+ * Returns the nearest CSC centres to a lat/lng, sorted by distance.
+ */
+export async function getNearestCscByCoords(
+  lat: number,
+  lng: number,
+  limit = 3
+): Promise<CscCenter[]> {
+  const { data, error } = await supabase.rpc("nearest_csc", {
+    in_lat: lat,
+    in_lng: lng,
+    max_results: limit,
   });
+  if (error) {
+    console.warn("getNearestCscByCoords failed:", error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+/**
+ * Fallback when GPS is unavailable/denied: match by district instead.
+ * No distance is returned since we don't have coordinates to compare.
+ */
+export async function getCscByDistrict(district: string, limit = 3): Promise<CscCenter[]> {
+  const { data, error } = await supabase.rpc("csc_by_district", {
+    in_district: district,
+    max_results: limit,
+  });
+  if (error) {
+    console.warn("getCscByDistrict failed:", error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+/**
+ * One call that does the right thing: try GPS first, fall back to a
+ * known district if location isn't available. This is what the
+ * apply-flow / SMS generation and the "Find Nearest CSC" button call.
+ */
+export async function findNearestCsc(fallbackDistrict?: string, limit = 3): Promise<CscCenter[]> {
+  const coords = await getCurrentCoords();
+  if (coords) {
+    const byGps = await getNearestCscByCoords(coords.lat, coords.lng, limit);
+    if (byGps.length) return byGps;
+  }
+  if (fallbackDistrict) {
+    return getCscByDistrict(fallbackDistrict, limit);
+  }
+  return [];
 }

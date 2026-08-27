@@ -8,7 +8,6 @@ import {
   Linking,
   Alert,
   Platform,
-  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { ArrowLeft, Bookmark, CheckCircle, FileText, ExternalLink, MapPin, Volume2, VolumeX } from "lucide-react-native";
@@ -41,6 +40,14 @@ async function translateBlob(text: string, targetCode: string): Promise<string |
     return json?.responseData?.translatedText ?? null;
   } catch {
     return null;
+  }
+}
+
+function showAlert(title: string, msg: string) {
+  if (Platform.OS === "web") {
+    window.alert(`${title}\n\n${msg}`);
+  } else {
+    Alert.alert(title, msg);
   }
 }
 
@@ -77,16 +84,11 @@ export default function SchemeDetail() {
     last_updated: string | null;
     [key: string]: unknown;
   };
-
   const [scheme, setScheme] = useState<SchemeRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [bookmarked, setBookmarked] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [findingCsc, setFindingCsc] = useState(false);
-
-  // Custom Alert Modal States
-  const [cscModalVisible, setCscModalVisible] = useState(false);
-  const [cscModalText, setCscModalText] = useState("");
 
   const [translated, setTranslated] = useState<TranslatedContent | null>(null);
   const [translatingPage, setTranslatingPage] = useState(false);
@@ -178,8 +180,10 @@ export default function SchemeDetail() {
         Linking.openURL(scheme.application_url);
       }
     } else {
-      setCscModalText(`Please apply at: ${scheme.csc_info ?? "your nearest Common Service Centre"}`);
-      setCscModalVisible(true);
+      showAlert(
+        "No online portal listed",
+        `Please apply at: ${scheme.csc_info ?? "your nearest Common Service Centre"}`
+      );
     }
   }
 
@@ -189,17 +193,14 @@ export default function SchemeDetail() {
       const nearestCentres = await findNearestCsc();
       const nearest = nearestCentres?.[0];
       const msg = nearest
-        ? `${nearest.name}\n${nearest.address}${
-            nearest.distance_km ? `\n(${nearest.distance_km.toFixed(1)} km away)` : ""
+        ? `${nearest.name}, ${nearest.address}${
+            nearest.distance_km ? ` (${nearest.distance_km.toFixed(1)} km away)` : ""
           }`
-        : scheme?.csc_info ?? "No CSC centre found near you yet";
-      
-      setCscModalText(msg);
-      setCscModalVisible(true);
+        : scheme?.csc_info ?? "No CSC centre found near you yet — check findmycsc.nic.in";
+      showAlert("Nearest CSC Centre", msg);
     } catch (err) {
-      console.error("Error retrieving CSC:", err);
-      setCscModalText(scheme?.csc_info ?? "No CSC centre found near you yet");
-      setCscModalVisible(true);
+      console.log("Find CSC error:", err);
+      showAlert("Nearest CSC Centre", scheme?.csc_info ?? "Could not fetch location right now.");
     } finally {
       setFindingCsc(false);
     }
@@ -305,6 +306,7 @@ export default function SchemeDetail() {
           <Text className="text-sm text-white/70">{scheme.department}</Text>
           <Text className="text-sm text-white/80 mt-3">{displayDescription}</Text>
 
+          {/* Listen button (prominent, low-literacy friendly) */}
           <Pressable
             onPress={handleListen}
             className="mt-4 flex-row items-center gap-2 self-start px-4 py-2.5 rounded-sm active:opacity-80"
@@ -316,11 +318,13 @@ export default function SchemeDetail() {
             </Text>
           </Pressable>
 
+          {/* Demo label */}
           <View className="mt-3 px-2 py-1 rounded-sm self-start" style={{ backgroundColor: "rgba(255,107,53,0.2)" }}>
             <Text className="text-xs font-semibold" style={{ color: COLORS.primary }}>{DEMO_DATASET_LABEL}</Text>
           </View>
         </View>
 
+        {/* Eligibility */}
         <SectionCard title={t.eligibility} icon="✅">
           {scheme.eligibility_income_limit && (
             <InfoRow label="Income Limit" value={`Up to ₹${(scheme.eligibility_income_limit / 100000).toFixed(1)} Lakh per year`} />
@@ -346,10 +350,12 @@ export default function SchemeDetail() {
           </Pressable>
         </SectionCard>
 
+        {/* Benefits */}
         <SectionCard title={t.benefits} icon="💰">
           <Text className="text-sm text-foreground leading-5">{displayBenefits}</Text>
         </SectionCard>
 
+        {/* Documents */}
         <SectionCard title={t.documents} icon="📄">
           {docs.map((doc, i) => (
             <View key={i} className="flex-row items-start gap-2 mb-1.5">
@@ -359,6 +365,7 @@ export default function SchemeDetail() {
           ))}
         </SectionCard>
 
+        {/* Application Process */}
         <SectionCard title="Application Process" icon="📝">
           {steps.map((step, i) => (
             <View key={i} className="flex-row items-start gap-3 mb-3">
@@ -385,6 +392,7 @@ export default function SchemeDetail() {
           )}
         </SectionCard>
 
+        {/* CSC Info */}
         {scheme.csc_info && (
           <SectionCard title="Help / CSC Centre" icon="📍">
             <View className="flex-row items-start gap-2">
@@ -394,6 +402,7 @@ export default function SchemeDetail() {
           </SectionCard>
         )}
 
+        {/* Apply + Find Nearest CSC */}
         <View className="px-5 pb-10 gap-3 mt-2">
           <Pressable
             className="rounded-sm py-4 items-center flex-row justify-center gap-2 active:opacity-80 border"
@@ -421,32 +430,6 @@ export default function SchemeDetail() {
           </Pressable>
         </View>
       </ScrollView>
-
-      {/* Pop-up Alert Modal */}
-      <Modal
-        transparent
-        animationType="fade"
-        visible={cscModalVisible}
-        onRequestClose={() => setCscModalVisible(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/60 px-6">
-          <View className="bg-card w-full max-w-sm rounded-lg p-5 border border-border shadow-lg">
-            <Text className="text-lg font-bold text-foreground mb-2">
-              📍 Nearest CSC Centre
-            </Text>
-            <Text className="text-sm text-foreground/80 leading-5 mb-5">
-              {cscModalText}
-            </Text>
-            <Pressable
-              onPress={() => setCscModalVisible(false)}
-              className="py-3 rounded-md items-center active:opacity-80"
-              style={{ backgroundColor: COLORS.primary }}
-            >
-              <Text className="text-white font-bold text-sm">OK</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

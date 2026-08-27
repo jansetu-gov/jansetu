@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 15.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://wezwjkeanvilhookfgoc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_BCjWFwOGRzD5KKCkl0vVFA_F06jET22"
+      }
+    },
+    "production": {}
+  }
+}
